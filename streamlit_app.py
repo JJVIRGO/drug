@@ -82,3 +82,8 @@ st.text(gpu_info["GPU Information"])
 
 st.write("---")
 st.write("Note: CPU core counts require the `psutil` library. GPU information retrieval attempts to use `nvidia-smi` for NVIDIA GPUs and `rocm-smi` for AMD GPUs. If these tools are not installed or the GPU is from a different vendor, information might be limited or unavailable.")
+
+# 查看pip list
+st.subheader("Installed Packages")
+st.write(subprocess.check_output(["pip", "list"]).decode())
+
