@@ -44,8 +44,8 @@ def get_gpu_info():
         try:
             result = subprocess.run(['rocm-smi', '--showproductname', '--showdriverversion', '--showmeminfo', 'vram'], capture_output=True, text=True, check=True)
             # rocm-smi的输出格式可能需要进一步解析
-            gpu_info_str = f"AMD GPU detected (rocm-smi output needs parsing):
-{result.stdout.strip()}"
+            gpu_info_str = f"""AMD GPU detected (rocm-smi output needs parsing):
+{result.stdout.strip()}"""
         except (subprocess.CalledProcessError, FileNotFoundError):
             gpu_info_str = "No NVIDIA or AMD GPU detected via command line tools, or tools not installed."
     except Exception as e:
