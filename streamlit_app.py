@@ -2,150 +2,83 @@ import streamlit as st
 import pandas as pd
 import math
 from pathlib import Path
+import platform
+import subprocess
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+def get_system_info():
+    """获取系统基本信息"""
+    info = {}
+    info["System"] = platform.system()
+    info["Release"] = platform.release()
+    info["Version"] = platform.version()
+    info["Machine"] = platform.machine()
+    info["Processor"] = platform.processor()
+    try:
+        info["Hostname"] = platform.node()
+    except Exception:
+        info["Hostname"] = "N/A"
+    return info
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+def get_cpu_info():
+    """获取CPU详细信息"""
+    cpu_info = {}
+    # Platform.processor() 已经提供了基本的处理器信息
+    # 尝试更详细的信息，如果psutil可用（这里先不引入，保持简单）
+    # 对于更详细的CPU信息，通常需要psutil，这里我们先依赖platform
+    cpu_info["CPU Cores (Physical)"] = "N/A (requires psutil)"
+    cpu_info["CPU Cores (Logical)"] = "N/A (requires psutil)"
+    return cpu_info
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def get_gpu_info():
+    """尝试获取GPU信息"""
+    gpu_info_str = "N/A"
+    try:
+        # 尝试 nvidia-smi (适用于NVIDIA GPU)
+        result = subprocess.run(['nvidia-smi', '--query-gpu=name,driver_version,memory.total', '--format=csv,noheader'], capture_output=True, text=True, check=True)
+        gpu_info_str = result.stdout.strip()
+        if not gpu_info_str: # 如果输出为空，尝试其他命令或标记为不可用
+            gpu_info_str = "NVIDIA GPU detected, but nvidia-smi output was empty."
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # nvidia-smi可能未安装或没有NVIDIA GPU
+        # 可以添加对其他GPU厂商的检测，例如AMD的rocm-smi
+        try:
+            result = subprocess.run(['rocm-smi', '--showproductname', '--showdriverversion', '--showmeminfo', 'vram'], capture_output=True, text=True, check=True)
+            # rocm-smi的输出格式可能需要进一步解析
+            gpu_info_str = f"AMD GPU detected (rocm-smi output needs parsing):
+{result.stdout.strip()}"
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            gpu_info_str = "No NVIDIA or AMD GPU detected via command line tools, or tools not installed."
+    except Exception as e:
+        gpu_info_str = f"Error getting GPU info: {str(e)}"
+    return {"GPU Information": gpu_info_str}
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+st.title("System Information App")
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+st.header("Streamlit App Execution Environment")
+st.write("""
+Streamlit 应用的计算资源取决于它的运行地点：
+- **本地运行**: 当你在你的电脑上通过 `streamlit run your_app.py` 命令运行应用时，它使用的是你**本地电脑**的 CPU、内存等资源。
+- **云端部署**: 当你将应用部署到 Streamlit Community Cloud、Heroku、AWS、Google Cloud 等平台时，它使用的是这些**云服务提供商的服务器**上的资源。
+""")
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+st.header("Runtime Environment Details")
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+system_info = get_system_info()
+st.subheader("Operating System")
+for key, value in system_info.items():
+    st.text(f"{key}: {value}")
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+cpu_info = get_cpu_info() # platform.processor() 已经在 system_info 中
+st.subheader("CPU Information")
+st.text(f"Processor Type: {system_info.get('Processor', 'N/A')}")
+# psutil 的信息获取暂时注释，因为不确定是否安装
+# for key, value in cpu_info.items():
+#    st.text(f"{key}: {value}")
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+gpu_info = get_gpu_info()
+st.subheader("GPU Information")
+st.text(gpu_info["GPU Information"])
 
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+st.write("---")
+st.write("Note: CPU core counts require the `psutil` library. GPU information retrieval attempts to use `nvidia-smi` for NVIDIA GPUs and `rocm-smi` for AMD GPUs. If these tools are not installed or the GPU is from a different vendor, information might be limited or unavailable.")
